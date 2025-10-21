@@ -1,5 +1,9 @@
-import { useState, useEffect } from 'react';
+'use client';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Heart, Gift, Users, Sparkles, Cake } from 'lucide-react';
+import React from 'react';
+
+// --- Type Definitions ---
 
 interface Confetti {
   id: number;
@@ -20,6 +24,16 @@ interface FloatingElement {
   delay: number;
 }
 
+// --- Constants ---
+
+const TOTAL_CANDLES = 6;
+const CONFETTI_COLORS = ['#F59E0B', '#EC4899', '#8B5CF6', '#10B981', '#3B82F6', '#EF4444', '#F97316'];
+const CONFETTI_COUNT = 80;
+const ANIMATION_FRAME_RATE = 16; // ~60fps
+const CONFETTI_DURATION_MS = 5000;
+
+// --- Main Component ---
+
 const App = () => {
   const [candlesBlown, setCandlesBlown] = useState(0);
   const [showConfetti, setShowConfetti] = useState(false);
@@ -32,11 +46,9 @@ const App = () => {
   const [newWish, setNewWish] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [floatingElements, setFloatingElements] = useState<FloatingElement[]>([]);
+  const [windowDimensions, setWindowDimensions] = useState({ width: 0, height: 0 });
 
-  const totalCandles = 6;
-  const confettiColors = ['#F59E0B', '#EC4899', '#8B5CF6', '#10B981', '#3B82F6', '#EF4444', '#F97316'];
-
-  // Initialize floating elements
+  // 1. Initialize floating elements
   useEffect(() => {
     const elements: FloatingElement[] = Array.from({ length: 20 }, (_, i) => ({
       id: i,
@@ -47,8 +59,14 @@ const App = () => {
       delay: Math.random() * 5,
     }));
     setFloatingElements(elements);
+
+    // Initial window dimensions for confetti setup safety
+    if (typeof window !== 'undefined') {
+      setWindowDimensions({ width: window.innerWidth, height: window.innerHeight });
+    }
   }, []);
 
+  // 2. Clock Timer
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
@@ -56,63 +74,82 @@ const App = () => {
     return () => clearInterval(timer);
   }, []);
 
+  // 3. Confetti Animation Logic
   useEffect(() => {
-    if (showConfetti) {
-      const newConfetti: Confetti[] = Array.from({ length: 80 }, (_, i) => ({
-        id: i,
-        x: Math.random() * window.innerWidth,
-        y: -10,
-        color: confettiColors[Math.floor(Math.random() * confettiColors.length)],
-        size: Math.random() * 8 + 4,
-        speedX: (Math.random() - 0.5) * 4,
-        speedY: Math.random() * 3 + 2,
-      }));
-      setConfetti(newConfetti);
+    if (!showConfetti || windowDimensions.width === 0) return;
 
-      const animateConfetti = () => {
-        setConfetti(prev => 
-          prev.map(piece => ({
-            ...piece,
-            x: piece.x + piece.speedX,
-            y: piece.y + piece.speedY,
-            speedY: piece.speedY + 0.08,
-          })).filter(piece => piece.y < window.innerHeight + 50)
-        );
-      };
+    const initialConfetti: Confetti[] = Array.from({ length: CONFETTI_COUNT }, (_, i) => ({
+      id: i,
+      // Use windowDimensions for safe initial positioning
+      x: Math.random() * windowDimensions.width, 
+      y: -10,
+      color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+      size: Math.random() * 8 + 4,
+      speedX: (Math.random() - 0.5) * 4,
+      speedY: Math.random() * 3 + 2,
+    }));
+    setConfetti(initialConfetti);
 
-      const interval = setInterval(animateConfetti, 16);
-      setTimeout(() => {
-        clearInterval(interval);
-        setShowConfetti(false);
-        setConfetti([]);
-      }, 5000);
+    const animateConfetti = () => {
+      setConfetti(prev => 
+        prev.map(piece => ({
+          ...piece,
+          x: piece.x + piece.speedX,
+          y: piece.y + piece.speedY,
+          speedY: piece.speedY + 0.08,
+        }))
+        // Filter using the actual window height state
+        .filter(piece => piece.y < windowDimensions.height + 50) 
+      );
+    };
 
-      return () => clearInterval(interval);
-    }
-  }, [showConfetti]);
+    const interval = setInterval(animateConfetti, ANIMATION_FRAME_RATE);
+    
+    const timeout = setTimeout(() => {
+      clearInterval(interval);
+      setShowConfetti(false);
+      // Optional: keep last few pieces for a smoother fade, or clear completely
+      setConfetti([]); 
+    }, CONFETTI_DURATION_MS);
 
-  const blowCandle = () => {
-    if (candlesBlown < totalCandles) {
-      setCandlesBlown(prev => prev + 1);
-      if (candlesBlown + 1 === totalCandles) {
-        setShowConfetti(true);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+  // IMPORTANT: Added windowDimensions to dependency array as its values are used inside the effect
+  }, [showConfetti, windowDimensions.width, windowDimensions.height]); 
+
+  // --- Handlers ---
+
+  const blowCandle = useCallback(() => {
+    setCandlesBlown(prev => {
+      const nextCandlesBlown = prev + 1;
+      if (nextCandlesBlown <= TOTAL_CANDLES) {
+        if (nextCandlesBlown === TOTAL_CANDLES) {
+          setShowConfetti(true);
+        }
+        return nextCandlesBlown;
       }
-    }
-  };
+      return prev;
+    });
+  }, []); // dependencies are fine here
 
-  const addWish = () => {
+  const addWish = useCallback(() => {
     if (newWish.trim()) {
-      setWishes(prev => [...prev, newWish.trim()]);
+      // Corrected "Haram" placeholder text in the wish input to match the page name "Aiman"
+      const wishText = newWish.trim().replace('Haram', 'Aiman'); 
+      setWishes(prev => [...prev, wishText]);
       setNewWish('');
     }
-  };
+  }, [newWish]);
 
-  const resetCake = () => {
+  const resetCake = useCallback(() => {
     setCandlesBlown(0);
-  };
+  }, []);
+
+  // --- Rendered Component ---
 
   return (
-    <>
     <div className="min-h-screen bg-gradient-to-br from-rose-100 via-pink-50 to-purple-100 relative overflow-hidden">
       {/* Animated Background Elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -185,7 +222,7 @@ const App = () => {
             </div>
           </div>
           <h2 className="text-4xl md:text-6xl font-bold text-transparent bg-gradient-to-r from-rose-500 to-pink-500 bg-clip-text mb-8 animate-pulse" style={{ animationDelay: '0.3s' }}>
-            Haram! 💖
+            Aiman! 💖
           </h2>
           <div className="text-lg text-gray-600 bg-white/60 backdrop-blur-sm rounded-full px-6 py-3 inline-block shadow-lg border border-white/40">
             {currentTime.toLocaleString('en-US', { 
@@ -211,8 +248,8 @@ const App = () => {
               <p className="text-gray-600 text-lg">Click the candles to blow them out one by one</p>
             </div>
             
-            {/* Enhanced Cake */}
-            <div className="relative flex justify-center mt-">
+            {/* Enhanced Cake - Fixed typo mt- to mt-8 */}
+            <div className="relative flex justify-center mt-8"> 
               {/* Cake Base with Layers */}
               <div className="relative">
                 {/* Bottom Layer */}
@@ -241,7 +278,7 @@ const App = () => {
 
                 {/* Beautiful Candles */}
                 <div className="absolute -top-20 left-1/2 transform -translate-x-1/2 flex gap-4">
-                  {Array.from({ length: totalCandles }).map((_, i) => (
+                  {Array.from({ length: TOTAL_CANDLES }).map((_, i) => (
                     <div key={i} className="relative group">
                       {/* Candle Stick */}
                       <div className="w-3 h-10 bg-gradient-to-b from-yellow-600 to-yellow-800 rounded-t-lg shadow-md relative">
@@ -298,19 +335,19 @@ const App = () => {
                 <div className="w-full bg-gray-200 rounded-full h-3 mb-4 overflow-hidden">
                   <div 
                     className="h-3 bg-gradient-to-r from-pink-500 to-purple-500 rounded-full transition-all duration-700 ease-out"
-                    style={{ width: `${(candlesBlown / totalCandles) * 100}%` }}
+                    style={{ width: `${(candlesBlown / TOTAL_CANDLES) * 100}%` }}
                   ></div>
                 </div>
                 <p className="text-xl font-semibold text-gray-700">
-                  {candlesBlown === totalCandles ? (
+                  {candlesBlown === TOTAL_CANDLES ? (
                     <span className="text-2xl animate-bounce">🎊 All wishes granted! Your dreams will come true! 🎊</span>
                   ) : (
-                    `${candlesBlown}/${totalCandles} candles blown - Keep wishing! ✨`
+                    `${candlesBlown}/${TOTAL_CANDLES} candles blown - Keep wishing! ✨`
                   )}
                 </p>
               </div>
               
-              {candlesBlown === totalCandles && (
+              {candlesBlown === TOTAL_CANDLES && (
                 <button 
                   onClick={resetCake}
                   className="px-8 py-4 bg-gradient-to-r from-pink-500 via-purple-500 to-rose-500 text-white text-lg font-semibold rounded-full hover:from-pink-600 hover:via-purple-600 hover:to-rose-600 transition-all duration-300 transform hover:scale-110 shadow-lg hover:shadow-xl"
@@ -327,7 +364,7 @@ const App = () => {
           <div className="bg-white/80 backdrop-blur-lg rounded-2xl p-8 shadow-xl border border-white/40 w-full max-w-2xl">
             <h3 className="text-2xl font-bold text-gray-800 mb-6 flex items-center justify-center gap-3">
               <Heart className="text-red-500 animate-pulse" />
-              Birthday Wishes for Haram
+              Birthday Wishes for Aiman
               <Gift className="text-purple-500 animate-bounce" />
             </h3>
             
@@ -337,7 +374,8 @@ const App = () => {
                   type="text"
                   value={newWish}
                   onChange={(e) => setNewWish(e.target.value)}
-                  placeholder="Write a beautiful wish for Haram..."
+                  // Changed placeholder text to correctly reflect the page's recipient, Aiman
+                  placeholder="Write a beautiful wish for Aiman..." 
                   className="flex-1 p-4 border-2 border-pink-200 rounded-xl focus:ring-4 focus:ring-pink-300 focus:border-pink-400 transition-all duration-300 text-lg placeholder-gray-400"
                   onKeyPress={(e) => e.key === 'Enter' && addWish()}
                 />
@@ -368,26 +406,24 @@ const App = () => {
         <div className="text-center bg-white/90 backdrop-blur-lg rounded-3xl p-10 shadow-2xl border border-white/50 mb-12">
           <div className="text-6xl mb-6 animate-pulse">💖</div>
           <h2 className="text-3xl md:text-4xl font-bold text-gray-800 mb-6">
-            Dear Haram
+            Dear Aiman
           </h2>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed mb-6">
-        Happy Birthday, Haram 💖
+            Happy Birthday, Aiman 💖
 
-On your special day, I just want to remind you how truly rare and precious you are.
-Your smile has a way of softening even the hardest moments, and your presence brings a quiet calm the world often forgets.
-Every second spent around you is a moment worth holding onto — and knowing you has always felt like a quiet kind of blessing.
+            On your special day, I just want to remind you how truly rare and precious you are.
+            Your smile has a way of softening even the hardest moments, and your presence brings a quiet calm the world often forgets.
+            Every second spent around you is a moment worth holding onto — and knowing you has always felt like a quiet kind of blessing.
 
-I hope this year surrounds you with peace, fills you with love, and brings your dreams to life — one by one.
-You deserve more than just happiness... you deserve the kind of joy that stays.
-Keep being the light you are — soft, strong, and unforgettable.
+            I hope this year surrounds you with peace, fills you with love, and brings your dreams to life — one by one.
+            You deserve more than just happiness... you deserve the kind of joy that stays.
+            Keep being the light you are — soft, strong, and unforgettable.
 
-Happy Birthday, to the name my heart never learned to forget. 💫🎂💐
-
-
+            Happy Birthday, to the name my heart never learned to forget. 💫🎂💐
           </p>
           <p className="text-lg text-gray-500 italic">
             With love and best wishes,<br />
-            <span className="font-bold text-2xl text-transparent bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text">Abdullah Siddiqui</span> ❤️
+            <span className="font-bold text-2xl text-transparent bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text">Aleeha Fatima</span> ❤️
           </p>
         </div>
 
@@ -409,13 +445,17 @@ Happy Birthday, to the name my heart never learned to forget. 💫🎂💐
           0%, 100% { transform: translateY(0px) rotate(0deg); }
           50% { transform: translateY(-20px) rotate(180deg); }
         }
-        
+
         @keyframes twinkle {
           0%, 100% { opacity: 0.3; transform: scale(1); }
           50% { opacity: 1; transform: scale(1.2); }
         }
+
+        .star {
+          animation: float 4s infinite ease-in-out, twinkle 2s infinite ease-in-out;
+        }
       `}</style>
-    </div></>
+    </div>
   );
 };
 
